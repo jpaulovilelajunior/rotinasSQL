@@ -1,0 +1,117 @@
+SELECT regionais.nome AS regional,
+       programas.nome AS programa,
+      CASE
+         WHEN MONTH(turmas.data_inicio) = 1  then 'JANEIRO'
+         WHEN MONTH(turmas.data_inicio) = 2  then 'FEVEREIRO'
+         WHEN MONTH(turmas.data_inicio) = 3  then 'MARÇO'
+         WHEN MONTH(turmas.data_inicio) = 4  then 'ABRIL'
+         WHEN MONTH(turmas.data_inicio) = 5  then 'MAIO'
+         WHEN MONTH(turmas.data_inicio) = 6  then 'JUNHO'
+         WHEN MONTH(turmas.data_inicio) = 7  then 'JULHO'
+         WHEN MONTH(turmas.data_inicio) = 8  then 'AGOSTO'
+         WHEN MONTH(turmas.data_inicio) = 9  then 'SETEMBRO'
+         WHEN MONTH(turmas.data_inicio) = 10 then 'OUTUBRO'
+         WHEN MONTH(turmas.data_inicio) = 11 then 'NOVEMBRO'
+         WHEN MONTH(turmas.data_inicio) = 12 then 'DEZEMBRO'
+       END AS mes_oferta,
+       CASE
+         WHEN escolas_p.tipo <= 1 then escolas_p.nome
+         ELSE escolas_m.nome
+       END AS nomeEscola,
+       municipios.nome AS municipio,
+       CASE
+         WHEN turmas.tipo = 0 THEN 'CAPACITACAO'
+         WHEN turmas.tipo = 1 THEN 'QUALIFICACAO'
+         WHEN turmas.tipo = 2 THEN 'CURSO TECNICO'
+         WHEN turmas.tipo = 3 THEN 'CURSO SUPERIOR'
+       END AS categoria,
+       turmas.modalidade AS modalidade,
+       eixos.nome as eixo,                          
+       CASE
+         WHEN turmas.tipo <= 1 THEN turmas.nome_qualificacao
+         WHEN turmas.tipo >= 2 THEN turmas.nome_curso
+       END AS curso,
+       turmas.nome AS turma,
+       (SELECT SUM(t_f.carga_hr)
+          FROM turmas_fics t_f
+         WHERE t_f.id_turmas = turmas_fics.id_turmas) AS carga_hr_turma,
+      turmas.data_inicio AS previsao_inicioTurma,
+ 	   turmas.data_fim AS previsao_terminoTurma,
+ 	   turmas.qtde_vagas AS vagas_ofertadas,
+ 	   
+ 	   turmas_fics.nome_fic as componente,
+      turmas_fics.dt_inicial as previsao_inicio_comp,
+      turmas_fics.dt_final as previsao_termino_comp,
+      (SELECT MIN(diario.data_aula)
+         FROM turmas_fics_professores
+			LEFT JOIN diario
+			ON diario.id_turmas_fics_professores = turmas_fics_professores.id
+         WHERE turmas_fics_professores.id_turmas_fics = turmas_fics.id
+         ORDER BY diario.id
+          limit 1) as primeira_aula,
+      (SELECT MAX(diario.data_aula)
+         FROM turmas_fics_professores
+			LEFT JOIN diario
+			ON diario.id_turmas_fics_professores = turmas_fics_professores.id
+         WHERE turmas_fics_professores.id_turmas_fics = turmas_fics.id
+         ORDER BY diario.id
+          limit 1) as ultima_aula,     
+      
+       case
+         when turmas_fics.status_fic = 0 then 'ABERTO'
+         when turmas_fics.status_fic = 1 then 'EM ANDAMENTO'
+         when turmas_fics.status_fic = 2 then 'CONCLUIDO'
+	   when turmas_fics.status_fic = 3 then 'CANCELADO'
+       end as status_comp,
+
+      turmas_fics.carga_hr as carga_hr_comp, 
+	CAST((select coalesce(sum(diario.duracao) / 60, 0)
+		  from diario_frequencia
+		  left join matriculas on (matriculas.id = diario_frequencia.id_matriculas)
+		  left join diario on (diario.id = diario_frequencia.id_diario)
+		  left join turmas_fics_professores on (turmas_fics_professores.id = diario.id_turmas_fics_professores)
+		 where turmas_fics_professores.id_turmas_fics = turmas_fics.id
+		 group by matriculas.id_alunos
+		 order by 1 desc
+		 limit 1) AS DECIMAL (5,0)) as carga_hr_exec,	
+		 
+       (select count(distinct matriculas.id_alunos)
+		  from matriculas
+          left join turmas_fics_professores on (turmas_fics_professores.id = matriculas.id_turmas_fics_professores)
+		 where turmas_fics_professores.id_turmas_fics = turmas_fics.id) as qtde_matriculas,		
+		       (select professores.nome
+          from turmas_fics_prof_equipe
+          left join professores on (professores.id = turmas_fics_prof_equipe.id_professores)
+          left join turmas_fics_professores on (turmas_fics_professores.id = turmas_fics_prof_equipe.id_turmas_fics_professores)
+         where turmas_fics_professores.id_turmas_fics = turmas_fics.id
+         order by turmas_fics_professores.id,
+                  turmas_fics_prof_equipe.id
+         limit 1) as professor_nome,         
+       (select professores.cpf
+          from turmas_fics_prof_equipe
+          left join professores on (professores.id = turmas_fics_prof_equipe.id_professores)
+          left join turmas_fics_professores on (turmas_fics_professores.id = turmas_fics_prof_equipe.id_turmas_fics_professores)
+         where turmas_fics_professores.id_turmas_fics = turmas_fics.id
+          order by turmas_fics_professores.id,
+                   turmas_fics_prof_equipe.id
+          limit 1) as professor_cpf
+			 		       
+  FROM turmas_fics
+  LEFT JOIN turmas
+  ON (turmas.id = turmas_fics.id_turmas)
+  LEFT JOIN escolas escolas_p
+  ON (escolas_p.id = turmas.id_escolas)
+  LEFT JOIN escolas escolas_m
+  ON (escolas_m.id = escolas_p.id_escolas)
+  LEFT JOIN municipios
+  ON (municipios.id = escolas_p.id_municipios)
+  LEFT JOIN regionais
+  ON (regionais.id = escolas_p.id_regionais)
+  LEFT JOIN programas
+  ON (programas.id = turmas.id_programas)
+  LEFT JOIN eixos
+  ON (eixos.id = turmas_fics.id_eixos)
+  
+  WHERE turmas.data_inicio > '2022-01-01'
+  AND turmas.id_escolas IN (20, 21, 23, 34, 35, 36, 37, 38, 40, 41, 42, 43, 44, 45, 55, 56, 67)
+  #AND turmas.id_escolas IN (54,46,48,39)
